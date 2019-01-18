@@ -24,13 +24,12 @@ source("function.R")
 
 
 ```{r, include=FALSE}
-ConsumerKey <- "fkSRsQj5WAohJuhSowPtADVlw"
-ConsumerSecret <- "9g3bXZqKqE9J4OTyEWofNXVmZWoyacHKQDHkEASfyBihKuXzLR"
-AccessToken <- "4196917883-4j4QbcqkrL1yKAMgGEhhckWUilLywFhBhoq0jUj"
-AccessTokenSecret <- "mtC38Jrjo301KsrzuWpfC6Yq5qBf44PM5FIt7oszUbC8s"
+ConsumerKey <- "xxx"
+ConsumerSecret <- "xxx"
+AccessToken <- "xxx"
+AccessTokenSecret <- "xxx"
 setup_twitter_oauth (ConsumerKey, ConsumerSecret, AccessToken, AccessTokenSecret)
 ```
-
 
 ###1- Construire des jeux de données twitter (corpus) avec 2 a 10 mots clés qu'on cherche a comparer 
 
@@ -61,7 +60,7 @@ whatsapp_text = whatsapp_tweets$text
 ```
 
 *NOTES:*
-To reproduce with the original dataset, run the code chunk below instead of searchTwitter below:
+To reproduce with the original dataset, run the code chunk below instead of searchTwitter above:
 
 ```{r}
 fb_tweets <- read.csv("fb_data.csv", sep = ",", header = TRUE)
@@ -260,12 +259,11 @@ For this part, I used the positive and negative word dictionary by hu and liu to
 
 
 ```{r, include=FALSE}
-hu.liu.pos = scan('/Users/lichuyuan/Desktop/Paris7/M2_s1/TextMining/positive-words.txt',
-                  what='character', comment.char =';' )
+hu.liu.pos = scan('polarityWords/positive-words.txt', what='character', 
+                  comment.char =';' )
 
-hu.liu.neg = scan('/Users/lichuyuan/Desktop/Paris7/M2_s1/TextMining/negative-words.txt',   
-                  what='character', comment.char =';' , encoding = "UTF-8")
-
+hu.liu.neg = scan('polarityWords/negative-words.txt', what='character', 
+                  comment.char =';', encoding = "UTF-8")
 
 pos.words = c(hu.liu.pos, 'upgrade')
 neg.words = c(hu.liu.neg, 'wait')
