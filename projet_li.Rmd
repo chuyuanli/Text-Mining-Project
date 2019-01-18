@@ -1,0 +1,585 @@
+---
+title: "Projet Text Mining"
+author: "Chuyuan LI"
+date: "1/16/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+library(twitteR)
+library(igraph)
+library(NLP)
+library(tm)
+if (!require("RColorBrewer")) {
+  install.packages("RColorBrewer")
+  library(RColorBrewer)
+}
+require(devtools)
+install_github("lchiffon/wordcloud2")
+library(wordcloud2)
+install.packages("syuzhet")
+library(syuzhet)
+source("function.R")
+```
+
+
+```{r, include=FALSE}
+ConsumerKey <- "fkSRsQj5WAohJuhSowPtADVlw"
+ConsumerSecret <- "9g3bXZqKqE9J4OTyEWofNXVmZWoyacHKQDHkEASfyBihKuXzLR"
+AccessToken <- "4196917883-4j4QbcqkrL1yKAMgGEhhckWUilLywFhBhoq0jUj"
+AccessTokenSecret <- "mtC38Jrjo301KsrzuWpfC6Yq5qBf44PM5FIt7oszUbC8s"
+setup_twitter_oauth (ConsumerKey, ConsumerSecret, AccessToken, AccessTokenSecret)
+```
+
+
+###1- Construire des jeux de données twitter (corpus) avec 2 a 10 mots clés qu'on cherche a comparer 
+
+The 3 key words that I have chosen for comparaison are:
+
+  - Facebook
+  - Instagram
+  - Whatsapp
+
+The idea is to compare the people's comments based on these three social network.
+For each of the key word, I take 1000 posts.
+
+```{r, cache=TRUE}
+# extract the tweets with key words
+facebook = searchTwitter('@facebook', lang = 'en', n=1000)
+instagram = searchTwitter('@instagram', lang = 'en', n=1000)
+whatsapp = searchTwitter('@whatsapp', lang = 'en', n=1000)
+
+# transform them into dataframes
+fb_tweets <- do.call("rbind", lapply(facebook, as.data.frame))
+fb_text = fb_tweets$text
+
+ins_tweets <- do.call("rbind", lapply(instagram, as.data.frame))
+ins_text = ins_tweets$text
+
+whatsapp_tweets <- do.call("rbind", lapply(whatsapp, as.data.frame))
+whatsapp_text = whatsapp_tweets$text
+```
+
+*NOTES:*
+To reproduce with the original dataset, run the code chunk below instead of searchTwitter below:
+
+```{r}
+fb_tweets <- read.csv("fb_data.csv", sep = ",", header = TRUE)
+fb_text <- fb_tweets$text
+
+ins_tweets <- read.csv("ins_data.csv", sep = ",", header = TRUE)
+ins_text <- ins_tweets$text
+
+whatsapp_tweets <- read.csv("whatsapp_data.csv", sep = ",", header = TRUE)
+whatsapp_text <- whatsapp_tweets$text
+```
+
+
+###2- Nettoyage du corpus
+
+Convert all text to lower case:
+
+```{r}
+fb_text<- tolower(fb_text)
+ins_text<- tolower(ins_text)
+whatsapp_text<- tolower(whatsapp_text)
+```
+
+Replace blank space (“rt”):
+
+```{r}
+fb_text <- gsub("rt", "", fb_text)
+ins_text <- gsub("rt", "", ins_text)
+whatsapp_text <- gsub("rt", "", whatsapp_text)
+```
+
+Replace @UserName with blank, replace @Keyword with Keyword:
+
+```{r}
+fb_text <- gsub("@facebook", "facebook", fb_text)
+fb_text <- gsub("@\\w+", "", fb_text)
+
+ins_text <- gsub("@instagram", "instagram", ins_text)
+ins_text <- gsub("@\\w+", "", ins_text)
+
+whatsapp_text <- gsub("@whatsapp", "whatsapp", whatsapp_text)
+whatsapp_text <- gsub("@\\w+", "", whatsapp_text)
+```
+
+
+Remove non UTF-8 characters from the text:
+
+```{r}
+fb_text <- gsub("[^[:alnum:][:blank:]?&/\\-]", "", fb_text)
+ins_text <- gsub("[^[:alnum:][:blank:]?&/\\-]", "", ins_text)
+whatsapp_text <- gsub("[^[:alnum:][:blank:]?&/\\-]", "", whatsapp_text)
+```
+
+
+Remove punctuation:
+
+```{r}
+fb_text <- gsub("[[:punct:]]", "", fb_text)
+ins_text <- gsub("[[:punct:]]", "", ins_text)
+whatsapp_text <- gsub("[[:punct:]]", "", whatsapp_text)
+```
+
+
+Remove links with regular expression:
+
+```{r}
+fb_text <- gsub("http.*\\s|http.*$|.[a-zA-Z]{2,3}/.+\\s|.[a-zA-Z]{2,3}/.+$", "", fb_text)
+ins_text <- gsub("http.*\\s|http.*$|.[a-zA-Z]{2,3}/.+\\s|.[a-zA-Z]{2,3}/.+$", "", ins_text)
+whatsapp_text <- gsub("http.*\\s|http.*$|.[a-zA-Z]{2,3}/.+\\s|.[a-zA-Z]{2,3}/.+$", "", whatsapp_text)
+```
+
+
+Remove tabs:
+
+```{r}
+fb_text <- gsub("[ |\t]{2,}", " ", fb_text)
+ins_text <- gsub("[ |\t]{2,}", " ", ins_text)
+whatsapp_text <- gsub("[ |\t]{2,}", " ", whatsapp_text)
+```
+
+
+Remove blank spaces at the beginning:
+
+```{r}
+fb_text <- gsub("^ ", "", fb_text)
+ins_text <- gsub("^ ", "", ins_text)
+whatsapp_text <- gsub("^ ", "", whatsapp_text)
+```
+
+
+Remove blank spaces at the end:
+
+```{r}
+fb_text <- gsub(" $", "", fb_text)
+ins_text <- gsub(" $", "", ins_text)
+whatsapp_text <- gsub(" $", "", whatsapp_text)
+```
+
+
+Create Corpus for each of the resources:
+
+```{r}
+fbCorpus <- Corpus(VectorSource(fb_text))
+insCorpus <- Corpus(VectorSource(ins_text))
+whatsappCorpus <- Corpus(VectorSource(whatsapp_text))
+```
+
+Remove stop words:
+
+```{r}
+fb_text_corpus <- tm_map(fbCorpus, function(x)removeWords(x,stopwords("english")))
+ins_text_corpus <- tm_map(insCorpus, function(x)removeWords(x,stopwords("english")))
+whatsapp_text_corpus <- tm_map(whatsappCorpus, function(x)removeWords(x,stopwords("english")))
+```
+
+
+Remove additional stopwords:
+
+```{r}
+fb_text_corpus <- tm_map(fb_text_corpus, removeWords, 
+                         c("facebook","amp", "can", "will","now","just","completely","takes",
+                           "will","got","really","sent","last","week","well",
+                           "dont","yes","given","even","lot", "facebook",
+                           "didnt","took","fully","said","ago","ones",
+                           "soon","wants", "pages","without","yet",
+                           "account","cant","keep","get","ive","thats","make",
+                           "faceboo"))
+
+ins_text_corpus <- tm_map(ins_text_corpus, removeWords, 
+                          c("instagram","one","amp","get","can","just","let",
+                            "please","now","doesnt","cant","whats","new","700k",
+                            "dont","will","still","keeps","going","getting","use",
+                            "much","day","named","insta","got","fifth","give",
+                            "ive","posts","need","really","put","never","made",
+                            "account", "accounts"))
+
+whatsapp_text_corpus <- tm_map(whatsapp_text_corpus, removeWords,
+                               c("whatsapp","please","can","need","just","use",
+                                 "get","one","amp","without","see","got","whatsapps",
+                                 "now","dont","make","year","let","close","next",
+                                 "doesnt","got","cant","account"))
+```
+
+
+###3- Reperage mots les plus associés aux mots clés
+
+Create TMD for each of the corpus, sort word frequency:
+
+```{r}
+tmd_fb <- TermDocumentMatrix(fb_text_corpus)
+m_fb <- as.matrix(tmd_fb)
+v_fb <- sort(rowSums(m_fb), decreasing = TRUE)
+df_fb <- data.frame(word = names(v_fb), freq = v_fb)
+
+tmd_ins <- TermDocumentMatrix(ins_text_corpus)
+m_ins <- as.matrix(tmd_ins)
+v_ins <- sort(rowSums(m_ins), decreasing = TRUE)
+df_ins <- data.frame(word = names(v_ins), freq = v_ins)
+
+tmd_whatsapp <- TermDocumentMatrix(whatsapp_text_corpus)
+m_wa <- as.matrix(tmd_whatsapp)
+v_wa <- sort(rowSums(m_wa), decreasing = TRUE)
+df_wa <- data.frame(word = names(v_wa), freq = v_wa)
+```
+
+Create wordcloud for each dataframe:
+
+```{r}
+wordcloud2(df_fb, color = "random-light", backgroundColor = "grey")
+
+wordcloud2(df_ins, minRotation = -pi/6, maxRotation = -pi/6, minSize = 10,
+           rotateRatio = 1)
+
+wordcloud2(df_wa, color = "random-light", backgroundColor = "grey")
+```
+
+
+Explorer les mots les plus associes avec les mots cles:
+
+```{r}
+findFreqTerms(tmd_fb, lowfreq = 20)
+findAssocs(tmd_fb, terms = "facebook", corlimit = 0.3)
+
+findFreqTerms(tmd_ins, lowfreq = 20)
+findAssocs(tmd_ins, terms = "instagram", corlimit = 0.1)
+
+findFreqTerms(tmd_whatsapp, lowfreq = 20)
+findAssocs(tmd_whatsapp, terms = "whatsapp", corlimit = 0.1)
+```
+
+
+
+###4- Analyse de sentiment positif/negatif
+
+For this part, I used the positive and negative word dictionary by hu and liu to calculate the score of polarity in each tweet.
+
+
+```{r, include=FALSE}
+hu.liu.pos = scan('/Users/lichuyuan/Desktop/Paris7/M2_s1/TextMining/positive-words.txt',
+                  what='character', comment.char =';' )
+
+hu.liu.neg = scan('/Users/lichuyuan/Desktop/Paris7/M2_s1/TextMining/negative-words.txt',   
+                  what='character', comment.char =';' , encoding = "UTF-8")
+
+
+pos.words = c(hu.liu.pos, 'upgrade')
+neg.words = c(hu.liu.neg, 'wait')
+```
+
+
+Apply the function to calculate the polarity:
+
+```{r}
+fb.scores = score.sentiment(fb_text, pos.words, neg.words)
+fb.scores$reseau = "Facebook"
+summary(fb.scores$score)
+
+ins.scores = score.sentiment(ins_text, pos.words, neg.words)
+ins.scores$reseau = "Instagram"
+summary(ins.scores$score)
+
+
+whatsapp.scores = score.sentiment(whatsapp_text, pos.words, neg.words)
+whatsapp.scores$reseau = "Whatsapp"
+summary(whatsapp.scores$score)
+```
+
+
+Looking the positive and negative examples in each corpus:
+
+```{r}
+fb.scores$text[fb.scores$score == -3]
+fb.scores$text[fb.scores$score == 4]
+
+ins.scores$text[ins.scores$score == -3]
+ins.scores$text[ins.scores$score == 3]
+
+whatsapp.scores$text[whatsapp.scores$score == -3]
+whatsapp.scores$text[whatsapp.scores$score == 2]
+```
+
+**Observation**
+
+We can see that for three social network, the polarity are mostly neutral. 
+Facebook has around 300 posts with positive scores and aound 200 negative scores.
+Instagram has around 200 posts positive, and 180 posts negative.
+Whatsapp, likely to Instagram, has a little bit more positive scores to negative ones.
+
+
+Now plot the result:
+
+```{r}
+ggplot2::qplot(fb.scores$score) + ggplot2::geom_histogram() +
+  ggplot2::labs(title="Positive/Negative scores for Facebook")
+
+ggplot2::qplot(ins.scores$score) + ggplot2::geom_histogram() +
+  ggplot2::labs(title="Positive/Negative scores for Instagram")
+
+ggplot2::qplot(whatsapp.scores$score) + ggplot2::geom_histogram() +
+  ggplot2::labs(title="Positive/Negative scores for Whatsapp")
+```
+
+
+
+###5- Adaptation de la fonction de calcul de score a des emotions (2,3,4 emotions)
+
+In this part, I use a build-in function to do an analyis with 10 emotions:
+anger, anticipation, disgust, fear, joy, negative, positive, sadness, surprise, trust.
+
+
+Apply to the function:
+
+```{r}
+sentiment_fb<- get_nrc_sentiment((fb_text))
+sentiment_ins<- get_nrc_sentiment((ins_text))
+sentiment_whatsapp <-get_nrc_sentiment((whatsapp_text))
+```
+
+
+Calculationg total score for each sentiment:
+
+```{r}
+sentimentscores_fb<-data.frame(colSums(sentiment_fb[,]))
+sentimentscores_ins<-data.frame(colSums(sentiment_ins[,]))
+sentimentscores_whatsapp<-data.frame(colSums(sentiment_whatsapp[,]))
+
+names(sentimentscores_fb)<-"Score"
+sentimentscores_fb<-cbind("sentiment"=rownames(sentimentscores_fb),sentimentscores_fb)
+rownames(sentimentscores_fb)<-NULL
+
+names(sentimentscores_ins)<-"Score"
+sentimentscores_ins<-cbind("sentiment"=rownames(sentimentscores_ins),sentimentscores_ins)
+rownames(sentimentscores_ins)<-NULL
+
+names(sentimentscores_whatsapp)<-"Score"
+sentimentscores_whatsapp<-cbind("sentiment"=rownames(sentimentscores_whatsapp),
+                                sentimentscores_whatsapp)
+rownames(sentimentscores_whatsapp)<-NULL
+```
+
+
+Plotting the sentiments with scores:
+
+```{r}
+ggplot2::ggplot(data=sentimentscores_fb,ggplot2::aes(x=sentiment,y=Score))+
+  ggplot2::geom_bar(ggplot2::aes(fill=sentiment),stat = "identity")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::xlab("Sentiments")+
+  ggplot2::ylab("Scores")+
+  ggplot2::ggtitle("Sentiments of tweets on Facebook")
+
+ggplot2::ggplot(data=sentimentscores_ins,ggplot2::aes(x=sentiment,y=Score))+
+  ggplot2::geom_bar(ggplot2::aes(fill=sentiment),stat = "identity")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::xlab("Sentiments")+
+  ggplot2::ylab("Scores")+
+  ggplot2::ggtitle("Sentiments of tweets on Instagram")
+
+ggplot2::ggplot(data=sentimentscores_whatsapp,ggplot2::aes(x=sentiment,y=Score))+
+  ggplot2::geom_bar(ggplot2::aes(fill=sentiment),stat = "identity")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::xlab("Sentiments")+
+  ggplot2::ylab("Scores")+
+  ggplot2::ggtitle("Sentiments of tweets on Whatsapp")
+```
+
+
+###6- Classification lexicale automatique (non supervisée)
+
+In this part, I use ward and centroide methodes to do the clustering, then compare the results.
+
+Change the corpus into document term matrix:
+
+```{r}
+fbDTM  <- DocumentTermMatrix(fb_text_corpus, control = list(wordLengths=c(4,Inf)))
+fb_row_total <- apply(fbDTM, 1, sum)
+fbDTM <- fbDTM[fb_row_total>0,] #remove all docs without words
+fbDTM <- removeSparseTerms(fbDTM, sparse=0.98)
+
+insDTM  <- DocumentTermMatrix(ins_text_corpus, control = list(wordLengths=c(4,Inf)))
+ins_row_total <- apply(insDTM, 1, sum)
+insDTM <- insDTM[ins_row_total>0,] #remove all docs without words
+insDTM <- removeSparseTerms(insDTM, sparse=0.98) # 100%
+
+whatsDTM <- DocumentTermMatrix(whatsapp_text_corpus, control = list(wordLengths=c(4,Inf)))
+whats_row_total <- apply(whatsDTM, 1, sum)
+whatsDTM <- whatsDTM[whats_row_total>0,] #remove all docs without words
+whatsDTM <- removeSparseTerms(whatsDTM, sparse=0.98) #97%
+```
+
+Transform doc-term matrix into term-doc matrix:
+
+```{r}
+fbTDM <- as.TermDocumentMatrix(fbDTM)
+fb_mat <- as.matrix(fbTDM)
+
+insTDM <- as.TermDocumentMatrix(insDTM)
+ins_mat <- as.matrix(insTDM)
+
+whatsTDM <- as.TermDocumentMatrix(whatsDTM)
+whats_mat <- as.matrix(whatsTDM)
+```
+
+Ward methode:
+
+```{r}
+fb_distMatrix <- dist(scale(fb_mat))  # calculer la distance de matrice
+fb_fit <- hclust(fb_distMatrix, method="ward.D")
+plot(fb_fit)
+rect.hclust(fb_fit, k=4) # couper l'arbre en 4 partitions
+fb_groups <- cutree(fb_fit, k=4)
+
+ins_distMatrix <- dist(scale(ins_mat))  # calculer la distance de matrice
+ins_fit <- hclust(ins_distMatrix, method="ward.D")
+plot(ins_fit)
+rect.hclust(ins_fit, k=4) # couper l'arbre en 4 partitions
+ins_groups <- cutree(ins_fit, k=4)
+
+whats_distMatrix <- dist(scale(whats_mat))  # calculer la distance de matrice
+whats_fit <- hclust(whats_distMatrix, method="ward.D")
+plot(whats_fit)
+rect.hclust(whats_fit, k=4) # couper l'arbre en 4 partitions
+whats_groups <- cutree(whats_fit, k=4)
+```
+
+Centroid methode:
+
+```{r}
+fb_fit2 <- hclust(fb_distMatrix, method="centroid")
+plot(fb_fit2)
+rect.hclust(fb_fit2, k=4)
+fb_groups2 <- cutree(fb_fit2, k=4)
+
+ins_fit2 <- hclust(ins_distMatrix, method="centroid")
+plot(ins_fit2)
+rect.hclust(ins_fit2, k=4)
+ins_groups2 <- cutree(ins_fit2, k=4)
+
+whats_fit2 <- hclust(whats_distMatrix, method="centroid")
+plot(whats_fit2)
+rect.hclust(whats_fit2, k=4)
+whats_groups2 <- cutree(whats_fit2, k=4)
+```
+
+
+###7- Commentaire et interprétation des resultats
+
+In this part I will compare the results from the previous sections, and try to give a reasonable explanation for each of them.
+Note that this intrepretation is based on the data that I extracted, any knit on this file will start a new extraction which will obtain totally different data sets.
+(to see the origin data, refer to file: `keyword_data.csv`)
+
+
+(1) WORD CLOUDS, ASSOCIATED WORDS
+
+To give an overlook of the words appeared in with the keyword, I first make a word cloud based on the frequency. Then I calculate the most associated words with function `FindAssocs()`
+
+**FACEBOOK**
+
+- most frequent words: 
+`one, good, clegg, nick, job, groups, brexit, takedown, growing, russia, spuntnik, unacceptable...`
+
+- associated words:
+```
+#fraud  remove  admins  making restore    page 
+#0.33    0.33    0.32    0.32    0.31    0.30 
+```
+
+From the frequent words, we can see that there are many positive posts with the word `good`, also people talk a lot about `job` and some international `news` like `brexit` or economic situation `growing`; the words `russia` and `asia` being mentioned a lot of times, especially `russia`; `spuntnik` is related to `russia` for that this is a russian news website platform and news agency. There are some words are hard to predict though, such as `one` (which gives no special meaning) and the adjectives like `unacceptable` (we don't know what exactly is unacceptable); some words are ambigious such as `clegg` or `nick` which probabaly refer to some people: Jonny Clegg for example is a musician.  
+The asociated words tell a different story: `fraud`, `remove`, `restore` and `admins` point out the administration and security problem with facebook.
+
+
+**INSTAGRAM**
+
+- most frequent words:
+`fan, help, follow, suppo, social, media, like, followers, impersonating, love, understand, disabled, convinced...`
+
+- associated words:
+```
+#facebook     boymom     ocboyslife       browser       probl          thru 
+#0.21          0.14          0.14          0.14          0.14          0.14 
+#paners       sponsor         fix         via         username        
+#0.13          0.13          0.12          0.12          0.11 
+```
+
+The frequent words in instagrams show a lot about the social communication, we have `follow`, `social media`, `like`, `followers`,``retweeting`,`video`, and it is easy to see that people tweet to gain popularity or to follow others. There are also words about news such as `africa`, `south`, `world`. 
+The associated words for instagram are not easy to interpret. For one thing, there are some orthographic errors. `facebook` is the word with the strongest like when people talk about instagram, which makes sense. Other words suck as `boymom` and `ocboyslife` are more likely to be the usernames on instagram, which failed to be filtered out during the corpus cleaning section. 
+
+
+**WHATSAPP**
+
+- most frequent words:
+`regime, zimbabwe, shut, mnangagwa, stem, request, video, depripaska, nastya, prikhodko, trip, yacht, social, great...`
+
+- associated words:
+```
+#mod         childpornography            groupsare              illegal 
+#0.16                 0.13                 0.13                 0.13 
+#pedogatenews pickingsynchronizing        number               unread 
+#0.13                 0.13                 0.12                 0.12 
+#web             messages                  bug 
+#0.11                 0.10                 0.10 
+```
+
+Whatsapp has a very strong thematic words: one of which is greatly about `zimbabwe`, its `regime` and president `Emmerson Mnangagwa`. Another topic is about Russia, for that we have the names like `Oleg Deripaska` who is the CEO of Russia's largest industrial groups, and `Prikhodko`: a Russian poititian and diplomate. A third topic is about `trip`: we see the words like `yacht`, `great`, also `riversideattack` which might report an incident during the trip.
+
+
+(2) SENTIMENT ANALYSIS
+
+For the binary sentiment, the results for three keywords don't show a great difference: most of the tweets are neutral, with facebook slightly more positive tweets then the two others (~300 vs. ~200).
+
+When applying the sentiment to 10 specific emotions, we see some differnces:
+
+- facebook: `positive`, `trust` are the two most obvious emotions, followed by `negative`. This result however is not quite match with the interpretation of associated words where we deduced that there exit a serious trust and security problem.
+
+- instagram: much alike with the result of facebook, we have `positive`, `trust` and also `anticipation`. In fact, instagram is the most "anticipated" social network among these three based on our data set. The frequent words also prove this with lots of words like `followers`, `retweeting`, etc.
+
+- whatsapp: `positive` emotion still dominates, the other emotions include `trust`, `negative`, `fear`.
+
+
+(3) CLUSTERING RESULT
+
+For each of the key words, I cluster the words into 4 groups.
+In order to see clearly the words appear in the clusters, I use a sparce rate of 0.98 so less words are included. 
+Comparing Ward methode and centroide methode, the first one gives a better result.
+
+**FACEBOOOK**
+
+The four groups are:
+- group1: `clegg, nick, growing, groups, brexit`
+- group2: `reinstate, unacceptable, refuses, admin`
+- group3: `morning, across, secretly, overnight, asia, baltics`
+- group4: `people, news, year, fraud, admins, director, access, behavior...`
+
+Except for group4, which contains more words than the other gorups, the rest has a fairly equal number of words. As for the topic for each group, it is not easy to see a tendence. Group 1 contains names and the news about `brexit`; group 2 is more about admininstration problem. Group 3 gathers the words about international news, specially related to seas. Group 4 has a wide range, it contains `admin`, `behavior`, `news`, so it's hard to give a topic.
+
+
+**INSTAGRAM**
+
+The four groups are:
+- group1: `south, africa, country, world`
+- group2: `anyone, understand, convincing, meaning`
+- group3: `like, followers, video, love, update, people, hacked, post, media`
+- group4: `follow, back`
+
+Because of the sparce rate, we have less words to clustering. But the result is not so bad: obviously each group tells a different story. Group 1 is about the countries of South Africa; group2 is more about the understanding; group3 and group4 are about `social media`.
+Group4 contains only 2 words so it is more difficult to see the topic behind.
+
+
+**WHATSAPP**
+
+Ward methode classifies the following words into groups:
+- group1: `zimbabwe, regime, mnangagwa...`
+- group2: `trip, video, seeing, viewing, yacht, depripaska...`
+- group3: `social media, riversideattack, fami...`
+- group4: `great, status, group, feature, messages, people, access...`
+
+The four groups are quite satisfying. They correspond to the thematic words that we concluded before, and correctly group them. 
+However the result with controide methode is not the case. It groups almost all the words in one group, and for the other groups only one word. That is why I decided only to see the result with Ward.
+
+
+
